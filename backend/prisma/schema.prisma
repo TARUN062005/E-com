@@ -1,0 +1,440 @@
+// schema.prisma
+datasource db {
+  provider = "mongodb"
+  url      = env("MONGO_URI")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ----------------- Enums -----------------
+enum UserRole {
+  USER
+  ADMIN
+  SELLER
+}
+
+enum OtpType {
+  VERIFICATION
+  PASSWORD_RESET
+  CONTACT_VERIFICATION
+}
+
+enum ProductCategory {
+  ELECTRONICS
+  FASHION
+  BOOKS
+  BEAUTY
+  HOME
+  FOOD
+  SPORTS
+  OTHER
+}
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  RETURN_REQUESTED
+  RETURNED
+}
+
+enum PaymentMethod {
+  CARD
+  UPI
+  NETBANKING
+  COD
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+}
+
+enum RefundStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+}
+
+enum ReviewRating {
+  ONE
+  TWO
+  THREE
+  FOUR
+  FIVE
+}
+
+// ----------------- User -----------------
+model User {
+  id            String        @id @default(cuid()) @map("_id")
+  name          String
+  role          UserRole      @default(USER)
+  password      String?
+  isVerified    Boolean       @default(false)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  deletedAt     DateTime?
+
+  // Relations
+  emails        Email[]
+  phones        Phone[]
+  otps          Otp[]
+  cartItems     CartItem[]
+  orders        Order[]
+  addresses     Address[]
+  products      Product[]         // if seller
+  wishlist      Wishlist?
+  reviews       Review[]
+  payments      Payment[]         // ✅ fixed backrelation
+  notifications Notification[]
+  sellerProfile SellerProfile?
+}
+
+// ----------------- Email -----------------
+model Email {
+  id        String   @id @default(cuid()) @map("_id")
+  userId    String
+  email     String   @unique
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+// ----------------- Phone -----------------
+model Phone {
+  id        String   @id @default(cuid()) @map("_id")
+  userId    String
+  phone     String   @unique
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+// ----------------- OTP -----------------
+model Otp {
+  id        String   @id @default(cuid()) @map("_id")
+  code      String
+  type      OtpType
+  userId    String
+  target    String?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+// ----------------- Address -----------------
+model Address {
+  id        String   @id @default(cuid()) @map("_id")
+  userId    String
+  label     String?
+  line1     String
+  line2     String?
+  city      String
+  state     String
+  country   String
+  zipCode   String
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User    @relation(fields: [userId], references: [id])
+  orders Order[]
+}
+
+// ----------------- Product -----------------
+model Product {
+  id           String               @id @default(cuid()) @map("_id")
+  sellerId     String
+  title        String
+  slug         String?              @unique
+  description  String?
+  category     ProductCategory
+  brand        String?
+  tags         String[]
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  deletedAt    DateTime?
+  isDraft      Boolean              @default(false)
+  featured     Boolean              @default(false)
+
+  seller       User                 @relation(fields: [sellerId], references: [id])
+  variants     ProductVariant[]
+  images       ProductImage[]
+  reviews      Review[]
+  orderItems   OrderItem[]
+  cartItems    CartItem[]
+  attributes   ProductAttributeValue[]
+  wishlistItems WishlistItem[]      // ✅ back relation
+}
+
+// ----------------- Product Variant -----------------
+model ProductVariant {
+  id          String   @id @default(cuid()) @map("_id")
+  productId   String
+  sku         String   @unique
+  title       String?
+  price       Float
+  compareAt   Float?
+  stock       Int      @default(0)
+  weightGrams Int?
+  barcode     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+
+  product     Product          @relation(fields: [productId], references: [id])
+  images      ProductImage[]
+  orderItems  OrderItem[]
+  cartItems   CartItem[]
+  attributes  ProductAttributeValue[]
+  reviews     Review[]         // ✅ back relation
+  wishlistItems WishlistItem[] // ✅ back relation
+  inventory   Inventory?       // ✅ one-to-one handled below
+}
+
+// ----------------- ProductImage -----------------
+model ProductImage {
+  id        String   @id @default(cuid()) @map("_id")
+  url       String
+  altText   String?
+  sortOrder Int      @default(0)
+  productId String?
+  variantId String?
+  createdAt DateTime @default(now())
+
+  product Product?        @relation(fields: [productId], references: [id])
+  variant ProductVariant? @relation(fields: [variantId], references: [id])
+}
+
+// ----------------- Product Attributes -----------------
+model ProductAttribute {
+  id        String   @id @default(cuid()) @map("_id")
+  name      String
+  values    ProductAttributeValue[]
+  createdAt DateTime @default(now())
+}
+
+model ProductAttributeValue {
+  id         String   @id @default(cuid()) @map("_id")
+  attributeId String
+  productId  String?
+  variantId  String?
+  value      String
+  createdAt  DateTime @default(now())
+
+  attribute ProductAttribute @relation(fields: [attributeId], references: [id])
+  product   Product?         @relation(fields: [productId], references: [id])
+  variant   ProductVariant?  @relation(fields: [variantId], references: [id])
+}
+
+// ----------------- Inventory -----------------
+model Inventory {
+  id            String   @id @default(cuid()) @map("_id")
+  variantId     String   @unique
+  availableQty  Int
+  reservedQty   Int      @default(0)
+  warehouseCode String?
+  lastSyncAt    DateTime @default(now())
+
+  variant ProductVariant @relation(fields: [variantId], references: [id]) // ✅ back relation
+}
+
+// ----------------- CartItem -----------------
+model CartItem {
+  id        String   @id @default(cuid()) @map("_id")
+  userId    String
+  productId String
+  variantId String
+  quantity  Int      @default(1)
+  addedAt   DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User           @relation(fields: [userId], references: [id])
+  product Product        @relation(fields: [productId], references: [id])
+  variant ProductVariant @relation(fields: [variantId], references: [id])
+}
+
+// ----------------- Order -----------------
+model Order {
+  id                String       @id @default(cuid()) @map("_id")
+  userId            String
+  shippingAddressId String
+  totalPrice        Float
+  shippingPrice     Float?       @default(0)
+  taxAmount         Float?       @default(0)
+  status            OrderStatus  @default(PENDING)
+  paymentStatus     PaymentStatus @default(PENDING)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  user            User    @relation(fields: [userId], references: [id])
+  shippingAddress Address @relation(fields: [shippingAddressId], references: [id])
+  orderItems      OrderItem[]
+  payment         Payment?
+  refund          Refund?
+}
+
+// ----------------- OrderItem -----------------
+model OrderItem {
+  id        String   @id @default(cuid()) @map("_id")
+  orderId   String
+  productId String
+  variantId String
+  quantity  Int
+  price     Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  order   Order          @relation(fields: [orderId], references: [id])
+  product Product        @relation(fields: [productId], references: [id])
+  variant ProductVariant @relation(fields: [variantId], references: [id])
+}
+
+// ----------------- Payment -----------------
+model Payment {
+  id            String       @id @default(cuid()) @map("_id")
+  orderId       String       @unique
+  userId        String       // ✅ added
+  method        PaymentMethod
+  amount        Float
+  status        PaymentStatus @default(PENDING)
+  transactionId String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id])
+  user  User  @relation(fields: [userId], references: [id]) // ✅ back relation
+}
+
+// ----------------- Refund -----------------
+model Refund {
+  id        String       @id @default(cuid()) @map("_id")
+  orderId   String       @unique
+  amount    Float
+  reason    String
+  status    RefundStatus @default(PENDING)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id])
+}
+
+// ----------------- Review -----------------
+model Review {
+  id        String   @id @default(cuid()) @map("_id")
+  userId    String
+  productId String
+  variantId String?
+  rating    Int
+  title     String?
+  body      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User           @relation(fields: [userId], references: [id])
+  product Product        @relation(fields: [productId], references: [id])
+  variant ProductVariant? @relation(fields: [variantId], references: [id])
+}
+
+// ----------------- Wishlist -----------------
+model Wishlist {
+  id        String       @id @default(cuid()) @map("_id")
+  userId    String       @unique
+  items     WishlistItem[]
+  createdAt DateTime     @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model WishlistItem {
+  id         String   @id @default(cuid()) @map("_id")
+  wishlistId String
+  productId  String
+  variantId  String?
+  addedAt    DateTime @default(now())
+
+  wishlist Wishlist      @relation(fields: [wishlistId], references: [id])
+  product  Product       @relation(fields: [productId], references: [id])
+  variant  ProductVariant? @relation(fields: [variantId], references: [id])
+}
+
+// ----------------- Coupon -----------------
+model Coupon {
+  id            String       @id @default(cuid()) @map("_id")
+  code          String       @unique
+  description   String?
+  discountType  DiscountType
+  value         Float
+  maxDiscount   Float?
+  minOrderAmount Float?
+  usageLimit    Int?
+  usedCount     Int          @default(0)
+  startsAt      DateTime?
+  endsAt        DateTime?
+  active        Boolean      @default(true)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+}
+
+// ----------------- Seller Profile -----------------
+model SellerProfile {
+  id            String   @id @default(cuid()) @map("_id")
+  userId        String   @unique
+  businessName  String?
+  gstNumber     String?
+  bankAccount   String?
+  payoutBalance Float    @default(0)
+  rating        Float?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user    User     @relation(fields: [userId], references: [id])
+  payouts Payout[]
+}
+
+model Payout {
+  id              String   @id @default(cuid()) @map("_id")
+  sellerProfileId String
+  amount          Float
+  status          String
+  method          String?
+  createdAt       DateTime @default(now())
+
+  sellerProfile SellerProfile @relation(fields: [sellerProfileId], references: [id])
+}
+
+// ----------------- Notification -----------------
+model Notification {
+  id        String   @id @default(cuid()) @map("_id")
+  userId    String
+  title     String
+  body      String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+// ----------------- SystemLog -----------------
+model SystemLog {
+  id        String   @id @default(cuid()) @map("_id")
+  level     String
+  source    String?
+  message   String
+  meta      Json?
+  createdAt DateTime @default(now())
+}
