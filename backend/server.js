@@ -37,6 +37,16 @@ app.get('/', (req, res) => {
   });
 });
 
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Backend is healthy',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
+
 // Import and use route modules
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
